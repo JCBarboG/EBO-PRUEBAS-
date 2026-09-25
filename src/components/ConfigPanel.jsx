@@ -3,8 +3,8 @@ import { useApp } from '../context/AppContext';
 import { useT } from '../i18n/translations';
 import Icon from './Icons';
 
-export default function ConfigPanel({ open, onClose }) {
-  const { lang, setLang, darkMode, setDarkMode, cameraEnabled, setCameraEnabled } = useApp();
+export default function ConfigPanel({ open, onClose, onPersonalize }) {
+  const { lang, setLang, cameraEnabled, setCameraEnabled } = useApp();
   const t = useT(lang);
 
   useEffect(() => {
@@ -47,10 +47,11 @@ export default function ConfigPanel({ open, onClose }) {
           {/* Appearance */}
           <section className="config-section">
             <h3 className="config-section__title">{t.config.appearance}</h3>
-            <label className="config-toggle-row">
-              <span className="config-toggle-label">{t.config.darkMode}</span>
-              <Toggle checked={darkMode} onChange={setDarkMode} />
-            </label>
+            <button type="button" className="config-perso" onClick={() => { onClose(); onPersonalize?.(); }}>
+              <Icon name="palette" size={20} />
+              <span><b>{t.perso.title}</b><small>{t.perso.configDesc}</small></span>
+              <Icon name="chevronRight" size={16} />
+            </button>
           </section>
 
           {/* Permissions */}

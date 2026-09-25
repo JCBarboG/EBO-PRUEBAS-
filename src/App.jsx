@@ -31,6 +31,7 @@ import TermsView from './views/TermsView';
 import PrivacyView from './views/PrivacyView';
 import GuideView from './views/GuideView';
 import HistoryView from './views/HistoryView';
+import PersonalizeView from './views/PersonalizeView';
 
 import {
   HISTORY_LIMIT, HistoryQuotaError, createPackage, formatPackageDate, loadHistory,
@@ -442,7 +443,7 @@ export default function App() {
         onOpenConfig={openConfig}
         onNavigate={(v) => setView(v)}
       />
-      <ConfigPanel open={configOpen} onClose={() => setConfigOpen(false)} />
+      <ConfigPanel open={configOpen} onClose={() => setConfigOpen(false)} onPersonalize={() => goTo('personalize')} />
       <Toast message={toastMessage} />
       <ConfirmDialog
         open={historyDialog?.kind === 'load'}
@@ -530,6 +531,7 @@ export default function App() {
     );
   }
   if (view === 'guide') return shell(<GuideView onBack={() => setView('main')} />);
+  if (view === 'personalize') return shell(<PersonalizeView onBack={() => setView('main')} showToast={showToast} />);
 
   // ── Diseño "Opción C · Riel y lectura de arriba abajo" (presentación) ──
   // Valores derivados de solo lectura; no alteran estado.
@@ -731,7 +733,7 @@ function MobileSteps({ t }) {
 }
 
 function MobileHeader({ showDocType, onDocTypeChange, onHamburger, onLogoClick }) {
-  const { lang, darkMode, setDarkMode } = useApp();
+  const { lang } = useApp();
   const t = useT(lang);
   return (
     <header className="oc-mhead">
@@ -741,9 +743,6 @@ function MobileHeader({ showDocType, onDocTypeChange, onHamburger, onLogoClick }
       <button type="button" className="oc-mhead__logo" onClick={onLogoClick} aria-label={t.header.goHome}>EBO</button>
       <span className="oc-mhead__spacer" />
       {showDocType && <DocTypeSelector variant="list" onTypeChange={onDocTypeChange} />}
-      <button type="button" className="oc-mhead__btn" onClick={() => setDarkMode(!darkMode)} aria-label={t.ui.toggleTheme}>
-        <Icon name={darkMode ? 'sun' : 'moon'} size={19} />
-      </button>
     </header>
   );
 }

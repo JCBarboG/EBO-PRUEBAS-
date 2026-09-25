@@ -1564,3 +1564,55 @@
 :is(#root, body) .about-prose { margin: 0; }
 :is(#root, body) .guide-intro { font-style: normal; text-align: left; font-family: var(--font-sans); }
 :is(#root, body) .oc-menu__item svg { flex: none; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Personalización por zonas
+   Cada zona tiene su fondo y sus colores de texto (--z-*). Por defecto
+   apuntan a los tokens del diseño original; la página Personalización los
+   reemplaza con estilos en línea sobre <html> (utils/colorTheme.js).
+   --g-*: copia de los colores globales para los controles que viven dentro
+   de una zona pero tienen su propia superficie (botones, menús).
+   ══════════════════════════════════════════════════════════════════════ */
+:root:root {
+  --g-ink: var(--ink); --g-soft: var(--soft); --g-rule: var(--rule);
+  --z-head-bg: var(--bg); --z-head-ink: var(--ink); --z-head-soft: var(--soft); --z-head-rule: var(--rule);
+  --z-cap-bg: var(--sf2); --z-cap-ink: var(--ink); --z-cap-soft: var(--soft); --z-cap-rule: var(--rule);
+  --z-ocr-bg: var(--sf); --z-ocr-ink: var(--ink); --z-ocr-soft: var(--soft); --z-ocr-rule: var(--rule);
+  --z-fields-bg: var(--bg); --z-fields-ink: var(--ink); --z-fields-soft: var(--soft); --z-fields-rule: var(--rule);
+  --z-tblh-bg: var(--sf2); --z-tblh-ink: var(--ink); --z-tblh-soft: var(--soft); --z-tblh-rule: var(--rule);
+  --z-tblc-bg: var(--sf); --z-tblc-ink: var(--ink); --z-tblc-soft: var(--soft); --z-tblc-rule: var(--rule);
+}
+:is(#root, body) .oc-head, :is(#root, body) .oc-mhead, :is(#root, body) .oc-steps {
+  background: var(--z-head-bg); --ink: var(--z-head-ink); --soft: var(--z-head-soft); --rule: var(--z-head-rule);
+}
+:is(#root, body) .oc-capture { background: var(--z-cap-bg); --ink: var(--z-cap-ink); --soft: var(--z-cap-soft); --rule: var(--z-cap-rule); }
+:is(#root, body) .oc-ocr { background: var(--z-ocr-bg); border-color: var(--z-ocr-rule); --ink: var(--z-ocr-ink); --soft: var(--z-ocr-soft); --rule: var(--z-ocr-rule); }
+:is(#root, body) .oc-ocr:focus-within { border-color: var(--acc); }
+:is(#root, body) .oc-fields {
+  margin: 0 -16px; padding: 12px 16px 16px; border-radius: 14px;
+  background: var(--z-fields-bg); color: var(--z-fields-ink);
+  --ink: var(--z-fields-ink); --soft: var(--z-fields-soft); --rule: var(--z-fields-rule);
+}
+:is(#root, body) .excel-wrap { background: var(--z-tblc-bg); }
+:is(#root, body) .excel-table thead { --ink: var(--z-tblh-ink); --soft: var(--z-tblh-soft); --rule: var(--z-tblh-rule); }
+:is(#root, body) .excel-table tbody { --ink: var(--z-tblc-ink); --soft: var(--z-tblc-soft); --rule: var(--z-tblc-rule); }
+:is(#root, body) .excel-table .col-letters th,
+:is(#root, body) .excel-table .field-names th,
+:is(#root, body) .excel-table .field-names th:first-child { background: var(--z-tblh-bg); }
+:is(#root, body) .excel-table .field-names th.oc-flash { animation-name: ocNewThZ; }
+@keyframes ocNewThZ { 0% { background-color: var(--sel); } 100% { background-color: var(--z-tblh-bg); } }
+:is(#root, body) .excel-table tbody td,
+:is(#root, body) .excel-table tbody tr:nth-child(even) td,
+:is(#root, body) .excel-table .oc-filler td:not(:first-child) { background: var(--z-tblc-bg); color: var(--ink); }
+:is(#root, body) .excel-table tbody td:first-child {
+  background: var(--z-tblh-bg); color: var(--z-tblh-soft); border-bottom-color: var(--z-tblh-rule);
+}
+:is(#root, body) .oc-rownum { color: var(--z-tblh-soft); }
+:is(#root, body) .oc-cell:focus { background: var(--z-tblc-bg); }
+/* Controles con superficie propia dentro de una zona: vuelven a la tinta global */
+:is(#root, body) .oc-btn:not(.oc-btn--ghost), :is(#root, body) .btn:not(.btn--ghost),
+:is(#root, body) .nav-btn, :is(#root, body) .oc-icon-btn, :is(#root, body) .oc-menu,
+:is(#root, body) .doc-type-list__btn, :is(#root, body) .gallery-image, :is(#root, body) .orientation-warning {
+  --ink: var(--g-ink); --soft: var(--g-soft); --rule: var(--g-rule);
+}
+:is(#root, body) .image-input .btn--primary { background: var(--g-ink); border-color: var(--g-ink); color: var(--bg); }

@@ -31,6 +31,8 @@ const PATHS = {
   alert: 'M12 4l9 16H3zM12 10v4M12 17h.01',
   check: 'M5 12l5 5 9-10',
   reset: 'M4 12a8 8 0 1 0 2.3-5.6M4 4v5h5',
+  palette: 'M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.8 1.6-1.6 0-.9-.7-1.3-.7-2.2 0-.9.8-1.7 1.7-1.7H17a4 4 0 0 0 4-4c0-4.7-4-8.5-9-8.5zM7.5 11.5h.01M9.5 7.5h.01M14.5 7.5h.01M17 11h.01',
+  pipette: 'M14.5 4.5l5 5M17 2.5a2.1 2.1 0 0 1 3 3l-2 2-3-3zM15 7.5l-9 9-1.5 4 4-1.5 9-9',
 };
 
 export default function Icon({ name, size = 18, strokeWidth = 1.7, className }) {

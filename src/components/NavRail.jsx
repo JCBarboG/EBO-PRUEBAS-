@@ -6,7 +6,7 @@ import Icon, { DotsIcon } from './Icons';
 // Riel izquierdo de escritorio (≥ 1100 px). En móvil se oculta por CSS y se
 // usa el Drawer. Solo navega y llama a los handlers que ya existen.
 export default function NavRail({ view, configOpen, onNavigate, onOpenConfig, onNewRecord }) {
-  const { lang, darkMode, setDarkMode } = useApp();
+  const { lang } = useApp();
   const t = useT(lang);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef(null);
@@ -29,7 +29,7 @@ export default function NavRail({ view, configOpen, onNavigate, onOpenConfig, on
     { id: 'guide', label: t.menu.guide, icon: 'guide' },
     { id: 'support', label: t.menu.support, icon: 'support' },
   ];
-  const moreViews = ['about', 'premium', 'terms', 'privacy'];
+  const moreViews = ['about', 'premium', 'terms', 'privacy', 'personalize'];
 
   const pick = (cb) => { setMoreOpen(false); cb(); };
 
@@ -88,21 +88,15 @@ export default function NavRail({ view, configOpen, onNavigate, onOpenConfig, on
             <button type="button" role="menuitem" className="oc-menu__item" onClick={() => pick(() => onNavigate('premium'))}>
               <Icon name="star" size={16} />{t.menu.premium}
             </button>
+            <button type="button" role="menuitem" className="oc-menu__item" onClick={() => pick(() => onNavigate('personalize'))}>
+              <Icon name="palette" size={16} />{t.perso.title}
+            </button>
             <div className="oc-menu__sep" />
             <button type="button" role="menuitem" className="oc-menu__item" onClick={() => pick(() => onNavigate('terms'))}>
               <Icon name="lines" size={16} />{t.ui.termsPrivacy}
             </button>
           </div>
         )}
-        <button
-          type="button"
-          className="oc-rail__btn"
-          aria-label={t.ui.toggleTheme}
-          data-tip={t.ui.toggleTheme}
-          onClick={() => setDarkMode(!darkMode)}
-        >
-          <Icon name={darkMode ? 'sun' : 'moon'} size={20} strokeWidth={1.6} />
-        </button>
       </div>
     </nav>
   );

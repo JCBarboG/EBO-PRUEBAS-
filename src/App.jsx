@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from './context/AppContext';
 import { useT } from './i18n/translations';
-import { CATEGORIES_BY_TYPE, emptyFieldsForType } from './constants/docTypes';
+import { emptyFieldsForType } from './constants/docTypes';
 import { exportBooksToExcel } from './utils/exportExcel';
+import { getColumns, newCustomColumn } from './utils/columns';
 import { rotateImageBlob } from './utils/rotateImage';
 import { useOcrWorker } from './hooks/useOcrWorker';
 import { useToast } from './hooks/useToast';
@@ -19,6 +20,9 @@ import ConfigPanel from './components/ConfigPanel';
 import DocTypeSelector from './components/DocTypeSelector';
 import HelpButton from './components/HelpButton';
 import ConfirmDialog from './components/ConfirmDialog';
+import NavRail from './components/NavRail';
+import AddFieldPanel from './components/AddFieldPanel';
+import Icon, { DotsIcon } from './components/Icons';
 
 import SupportView from './views/SupportView';
 import AboutView from './views/AboutView';
@@ -75,6 +79,22 @@ export default function App() {
   // documento (el efecto de docType limpia los overrides; ver abajo).
   const pendingOverridesRef = useRef(null);
 
+  // Columnas propias por tipo de documento: { libro: [{ key, label, marcTag, custom }] }
+  // y orden visible por tipo: { libro: ['fuenteCatA', ..., 'custom_x'] }.
+  // Solo viven en la sesión (y en los paquetes del historial), igual que la
+  // puntuación manual: no se guardan en localStorage por separado.
+  const [customColumns, setCustomColumns] = useState({});
+  const [columnOrder, setColumnOrder] = useState({});
+  // Columna recién creada: se resalta con un destello breve.
+  const [flashKey, setFlashKey] = useState(null);
+  const flashTimerRef = useRef(null);
+  // Diálogos nuevos: vaciar tabla y eliminar columna propia.
+  const [clearOpen, setClearOpen] = useState(false);
+  const [columnToRemove, setColumnToRemove] = useState(null);
+  // Menús de presentación (Opción C): flecha de Exportar y "⋯" de la barra móvil.
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+
   const chipTimerRef = useRef(null);
   const imagesRef = useRef([]);
   const textareaRef = useRef(null);
@@ -86,7 +106,13 @@ export default function App() {
   useEffect(() => () => {
     imagesRef.current.forEach((img) => URL.revokeObjectURL(img.previewUrl));
     if (chipTimerRef.current) clearTimeout(chipTimerRef.current);
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
   }, []);
+
+  const columns = useMemo(
+    () => getColumns(docType, customColumns, columnOrder),
+    [docType, customColumns, columnOrder],
+  );
 
   useEffect(() => {
     setFields(emptyFieldsForType(docType));
@@ -201,7 +227,7 @@ export default function App() {
   const handleExport = () => {
     if (records.length === 0) { showToast(t.step03.noRecords); return; }
     showToast(t.step03.exporting(records.length));
-    exportBooksToExcel(records, docType, lang, columnPunctuation);
+    exportBooksToExcel(records, docType, lang, columnPunctuation, '', columns);
   };
 
   const handlePunctuationChange = (key, value) => {
@@ -218,7 +244,12 @@ export default function App() {
 
   // ── Historial ──
   const downloadPackage = (pkg) => {
-    exportBooksToExcel(pkg.rows, pkg.docType, lang, pkg.overrides || {}, packageFileStamp(pkg.createdAt));
+    // Paquetes nuevos: con sus columnas propias y su orden. Paquetes viejos
+    // (sin esos datos): solo las columnas MARC, como siempre.
+    const pkgColumns = Array.isArray(pkg.customColumns)
+      ? getColumns(pkg.docType, { [pkg.docType]: pkg.customColumns }, { [pkg.docType]: pkg.columnOrder })
+      : null;
+    exportBooksToExcel(pkg.rows, pkg.docType, lang, pkg.overrides || {}, packageFileStamp(pkg.createdAt), pkgColumns);
   };
 
   const commitHistory = (pkg, list) => {
@@ -234,7 +265,10 @@ export default function App() {
 
   const handleSaveHistory = () => {
     if (records.length === 0) { showToast(t.step03.historyEmpty); return; }
-    const pkg = createPackage(records, docType, columnPunctuation);
+    const pkg = createPackage(records, docType, columnPunctuation, {
+      customColumns: customColumns[docType] || [],
+      columnOrder: columnOrder[docType] || null,
+    });
     const list = loadHistory();
     if (list.length >= HISTORY_LIMIT) {
       setHistoryDialog({ kind: 'limit', pkg, list, oldest: oldestPackage(list) });
@@ -253,6 +287,17 @@ export default function App() {
 
   const applyPackage = (pkg) => {
     setRecords(pkg.rows.map((r) => ({ ...r, id: r.id || crypto.randomUUID() })));
+    // Columnas propias del paquete. Los paquetes viejos no las traen: en ese
+    // caso no se toca nada y cargan igual que antes.
+    if (Array.isArray(pkg.customColumns)) {
+      setCustomColumns((prev) => ({ ...prev, [pkg.docType]: pkg.customColumns.map((c) => ({ ...c })) }));
+      setColumnOrder((prev) => {
+        const next = { ...prev };
+        if (Array.isArray(pkg.columnOrder) && pkg.columnOrder.length) next[pkg.docType] = [...pkg.columnOrder];
+        else delete next[pkg.docType];
+        return next;
+      });
+    }
     if (pkg.docType === docType) {
       setColumnPunctuation({ ...(pkg.overrides || {}) });
     } else {
@@ -269,10 +314,89 @@ export default function App() {
     else applyPackage(pkg);
   };
 
+  // Vaciar tabla: misma acción de siempre, ahora confirmada con ConfirmDialog.
   const handleClearRecords = () => {
-    if (!window.confirm(t.step03.clearConfirm)) return;
+    setClearOpen(true);
+  };
+  const confirmClearRecords = () => {
+    setClearOpen(false);
     setRecords([]);
   };
+
+  // ── Columnas propias ──
+  const flashColumn = (key) => {
+    setFlashKey(key);
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = setTimeout(() => setFlashKey(null), 1600);
+  };
+
+  /** Crea una columna propia en `index` del orden visible (al final si no se indica). Devuelve su clave. */
+  const addCustomColumn = (label, marcTag = '', index) => {
+    const col = newCustomColumn(label, marcTag);
+    const order = columns.map((c) => c.key);
+    const at = index == null ? order.length : Math.max(0, Math.min(index, order.length));
+    order.splice(at, 0, col.key);
+    setCustomColumns((prev) => ({ ...prev, [docType]: [...(prev[docType] || []), col] }));
+    setColumnOrder((prev) => ({ ...prev, [docType]: order }));
+    flashColumn(col.key);
+    return col.key;
+  };
+
+  const handleAddField = (label, marcTag) => {
+    addCustomColumn(label, marcTag);
+  };
+
+  const handleInsertColumn = (index) => addCustomColumn(t.cols.newColumn, '', index);
+
+  const handleRenameColumn = (key, label) => {
+    setCustomColumns((prev) => ({
+      ...prev,
+      [docType]: (prev[docType] || []).map((c) => (c.key === key ? { ...c, label } : c)),
+    }));
+  };
+
+  const handleRemoveColumn = (key, label) => {
+    setColumnToRemove({ key, label });
+  };
+
+  const confirmRemoveColumn = () => {
+    const { key } = columnToRemove;
+    setColumnToRemove(null);
+    setCustomColumns((prev) => ({ ...prev, [docType]: (prev[docType] || []).filter((c) => c.key !== key) }));
+    setColumnOrder((prev) => (prev[docType] ? { ...prev, [docType]: prev[docType].filter((k) => k !== key) } : prev));
+    setRecords((prev) => prev.map((r) => {
+      if (!Object.prototype.hasOwnProperty.call(r, key)) return r;
+      const next = { ...r };
+      delete next[key];
+      return next;
+    }));
+    setFields((prev) => {
+      if (!Object.prototype.hasOwnProperty.call(prev, key)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    handlePunctuationReset(key);
+  };
+
+  // ── Tabla editable ──
+  const handleCellChange = (rowId, key, value) => {
+    setRecords((prev) => prev.map((r) => (r.id === rowId ? { ...r, [key]: value } : r)));
+  };
+
+  const handleInsertRow = (index) => {
+    setRecords((prev) => {
+      const next = [...prev];
+      next.splice(Math.max(0, Math.min(index, next.length)), 0, { id: crypto.randomUUID(), _type: docType });
+      return next;
+    });
+  };
+
+  const handleRemoveRow = (rowId) => {
+    setRecords((prev) => prev.filter((r) => r.id !== rowId));
+  };
+
+  const handleAddRow = () => handleInsertRow(records.length);
 
   const handleDocTypeChange = () => {
     setFields(emptyFieldsForType(docType));
@@ -283,10 +407,33 @@ export default function App() {
     setConfigOpen(true);
   };
 
+  const goTo = (v) => {
+    setDrawerOpen(false);
+    setConfigOpen(false);
+    setView(v);
+  };
+
   const shell = (content) => (
     <>
-      {content}
-      <Footer />
+      <div className={`oc-shell oc-shell--${view}`}>
+        <NavRail
+          view={view}
+          configOpen={configOpen}
+          onNavigate={goTo}
+          onOpenConfig={() => { setDrawerOpen(false); setConfigOpen((o) => !o); }}
+          onNewRecord={handleNewRecord}
+        />
+        <div className="oc-body">
+          <MobileHeader
+            showDocType={view === 'main'}
+            onDocTypeChange={handleDocTypeChange}
+            onHamburger={() => setDrawerOpen(true)}
+            onLogoClick={() => setView('main')}
+          />
+          {content}
+          <Footer />
+        </div>
+      </div>
       <Drawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
@@ -338,6 +485,25 @@ export default function App() {
           { label: t.history.openHistory, variant: 'primary', onClick: () => { setHistoryDialog(null); setView('history'); } },
         ]}
       />
+      <ConfirmDialog
+        open={clearOpen}
+        title={t.step03.clearConfirm}
+        onCancel={() => setClearOpen(false)}
+        actions={[
+          { label: t.history.cancel, variant: 'outline', onClick: () => setClearOpen(false) },
+          { label: t.step03.clearTable, variant: 'danger', onClick: confirmClearRecords },
+        ]}
+      />
+      <ConfirmDialog
+        open={Boolean(columnToRemove)}
+        title={columnToRemove ? t.cols.removeTitle(columnToRemove.label) : ''}
+        message={t.cols.removeMessage}
+        onCancel={() => setColumnToRemove(null)}
+        actions={[
+          { label: t.cols.cancel, variant: 'outline', onClick: () => setColumnToRemove(null) },
+          { label: t.cols.remove, variant: 'danger', onClick: confirmRemoveColumn },
+        ]}
+      />
       {view !== 'guide' && (
         <HelpButton
           visible={helpVisible}
@@ -348,138 +514,116 @@ export default function App() {
     </>
   );
 
-  const header = <AppHeader onHamburger={() => setDrawerOpen(true)} onLogoClick={() => setView('main')} />;
-
-  if (view === 'support') return shell(<>{header}<SupportView onBack={() => setView('main')} /></>);
-  if (view === 'about') return shell(<>{header}<AboutView onBack={() => setView('main')} onNavigate={setView} /></>);
-  if (view === 'premium') return shell(<>{header}<PremiumView onBack={() => setView('main')} /></>);
-  if (view === 'terms') return shell(<>{header}<TermsView onBack={() => setView('about')} /></>);
-  if (view === 'privacy') return shell(<>{header}<PrivacyView onBack={() => setView('about')} /></>);
+  if (view === 'support') return shell(<SupportView onBack={() => setView('main')} onNavigate={setView} />);
+  if (view === 'about') return shell(<AboutView onBack={() => setView('main')} onNavigate={setView} />);
+  if (view === 'premium') return shell(<PremiumView onBack={() => setView('main')} />);
+  if (view === 'terms') return shell(<TermsView onBack={() => setView('about')} />);
+  if (view === 'privacy') return shell(<PrivacyView onBack={() => setView('about')} />);
   if (view === 'history') {
     return shell(
-      <>
-        {header}
-        <HistoryView
-          onBack={() => setView('main')}
-          onLoad={handleLoadPackage}
-          onDownload={(pkg) => { showToast(t.history.downloading); downloadPackage(pkg); }}
-          showToast={showToast}
-        />
-      </>,
+      <HistoryView
+        onBack={() => setView('main')}
+        onLoad={handleLoadPackage}
+        onDownload={(pkg) => { showToast(t.history.downloading); downloadPackage(pkg); }}
+        showToast={showToast}
+      />,
     );
   }
-  if (view === 'guide') return shell(<>{header}<GuideView onBack={() => setView('main')} /></>);
+  if (view === 'guide') return shell(<GuideView onBack={() => setView('main')} />);
 
-  // ── Diseño "Mesa de luz" (solo presentación) ──
-  // Valores derivados de solo lectura para la barra lateral; no alteran estado.
-  const mesaCats = CATEGORIES_BY_TYPE[docType] || CATEGORIES_BY_TYPE.libro;
-  const mesaFilled = mesaCats.filter((c) => String(fields[c.key] || '').trim()).length;
-  const mesaStep1 = images.length > 0 ? 'is-done' : 'is-current';
-  const mesaStep2 = ocrText.trim() ? (records.length > 0 ? 'is-done' : 'is-current') : '';
-  const mesaStep3 = records.length > 0 ? 'is-current' : '';
+  // ── Diseño "Opción C · Riel y lectura de arriba abajo" (presentación) ──
+  // Valores derivados de solo lectura; no alteran estado.
+  const filledCount = columns.filter((c) => String(fields[c.key] || '').trim()).length;
+
+  const saveHistoryFromMenu = () => { setExportMenuOpen(false); setMobileMoreOpen(false); handleSaveHistory(); };
+  const clearFromMenu = () => { setExportMenuOpen(false); setMobileMoreOpen(false); handleClearRecords(); };
 
   return shell(
-    <div className="app app--mesa">
-      {header}
-      <div className="mesa-toolbar">
+    <div className="oc-main">
+      {/* Encabezado de escritorio */}
+      <header className="oc-head">
+        <h1 className="oc-head__title">{t.menu.newRecord}</h1>
         <DocTypeSelector onTypeChange={handleDocTypeChange} />
-      </div>
-
-      <nav className="mesa-steps-mobile" aria-label="Pasos">
-        <a href="#paso-1" className={mesaStep1}>1 · {t.step01.title}</a>
-        <a href="#paso-2" className={mesaStep2}>2 · {mesaFilled}/{mesaCats.length}</a>
-        <a href="#paso-3" className={mesaStep3}>3 · {t.step03.title}</a>
-      </nav>
-
-      <main className="app__main mesa">
-        {/* Barra lateral: pasos + acciones de la tabla (mismos handlers) */}
-        <aside className="mesa__side">
-          <ol className="mesa-steps">
-            <li className={`mesa-step ${mesaStep1}`}>
-              <a href="#paso-1"><b>{t.step01.title}</b><span>{images.length} / {MAX_IMAGES}</span></a>
-            </li>
-            <li className={`mesa-step ${mesaStep2}`}>
-              <a href="#paso-2"><b>{t.step02.title}</b><span>{mesaFilled} / {mesaCats.length}</span></a>
-            </li>
-            <li className={`mesa-step ${mesaStep3}`}>
-              <a href="#paso-3"><b>{t.step03.title}</b><span>{t.step03.count(records.length)}</span></a>
-            </li>
-          </ol>
-
-          <div className="mesa-actions" aria-label={t.step03.title}>
-            <p className="mesa-actions__count">{t.step03.count(records.length)}</p>
-            <button type="button" className="mesa-btn mesa-btn--save" onClick={handleSave}>
-              <SaveGlyph /> {t.step03.save}
+        <div className="oc-head__actions">
+          <button type="button" className="oc-btn oc-btn--acc" onClick={handleSave}>
+            <Icon name="save" size={15} strokeWidth={2} />{t.step03.save}
+          </button>
+          <MenuAnchor open={exportMenuOpen} onClose={() => setExportMenuOpen(false)} className="oc-split">
+            <button type="button" className="oc-btn oc-btn--green oc-split__main" onClick={handleExport}>
+              <Icon name="download" size={15} strokeWidth={2} />{t.step03.export}
             </button>
-            <button type="button" className="mesa-btn mesa-btn--export" onClick={handleExport}>
-              <DownloadGlyph /> {t.step03.export}
+            <button
+              type="button"
+              className="oc-btn oc-btn--green oc-split__arrow"
+              aria-label={t.ui.moreActions}
+              aria-haspopup="menu"
+              aria-expanded={exportMenuOpen}
+              onClick={() => setExportMenuOpen((o) => !o)}
+            >
+              <Icon name="chevronDown" size={13} strokeWidth={2.4} />
             </button>
-            <div className="mesa-actions__row">
-              <button type="button" className="mesa-link" onClick={handleSaveHistory}>
-                {t.step03.saveHistory}
-              </button>
-              <button type="button" className="icon-btn mesa-trash" aria-label={t.step03.clearTable} onClick={handleClearRecords}>
-                <TrashGlyph />
-              </button>
-            </div>
-          </div>
-        </aside>
+            {exportMenuOpen && (
+              <div className="oc-menu oc-split__menu" role="menu">
+                <button type="button" role="menuitem" className="oc-menu__item" onClick={saveHistoryFromMenu}>
+                  <Icon name="history" size={15} />{t.step03.saveHistory}
+                </button>
+                <button type="button" role="menuitem" className="oc-menu__item oc-menu__item--danger" onClick={clearFromMenu}>
+                  <Icon name="trash" size={15} />{t.step03.clearTable}
+                </button>
+              </div>
+            )}
+          </MenuAnchor>
+        </div>
+      </header>
 
-        {/* Step 01 */}
-        <section className="card mesa__stage" id="paso-1">
-          <div className="step-head">
-            <span className="step-num">01</span>
-            <h2>{t.step01.title}</h2>
-          </div>
-          <div className="divider" />
-          {isProcessing && <div className="mesa-scan" aria-hidden="true" />}
-          <ImageInput
-            images={images}
-            currentIndex={currentIdx}
-            onImageAdded={handleImageAdded}
-            onNavigate={handleNavigate}
-            onRotate={handleRotate}
-            onClear={handleClearAll}
-            onExtract={handleExtract}
-            isBusy={isProcessing}
-            orientationWarning={orientationWarn}
-          />
-          {isProcessing && <OcrProgress statusLabel={statusLabel} progress={progress} />}
-          {ocrError && <p className="error-text">{ocrError}</p>}
-        </section>
+      {/* Pestañas-ancla de móvil */}
+      <MobileSteps t={t} />
 
-        {/* Step 02 */}
-        <section className="card mesa__assign" id="paso-2">
-          <div className="step-head">
-            <span className="step-num">02</span>
-            <h2>{t.step02.title}</h2>
-            <span className="mesa-count">{mesaFilled}/{mesaCats.length}</span>
-          </div>
-          <div className="divider" />
-          <div className="step-grid">
-            <TextEditor ref={textareaRef} value={ocrText} onChange={setOcrText} onSelectionChange={setSelection} />
-            <CategoryFields
-              fields={fields}
-              onFieldChange={(key, val) => setFields((prev) => ({ ...prev, [key]: val }))}
-              selection={selection}
-              onAssign={handleAssign}
-              activeKey={activeChip}
+      <main className="app__main oc-content">
+        <section className="oc-strip" id="paso-1" aria-label={t.step01.title}>
+          <div className="oc-capture">
+            {isProcessing && <div className="oc-scan" aria-hidden="true" />}
+            <ImageInput
+              images={images}
+              currentIndex={currentIdx}
+              onImageAdded={handleImageAdded}
+              onNavigate={handleNavigate}
+              onRotate={handleRotate}
+              onClear={handleClearAll}
+              onExtract={handleExtract}
+              isBusy={isProcessing}
+              orientationWarning={orientationWarn}
             />
+            {isProcessing && <OcrProgress statusLabel={statusLabel} progress={progress} />}
+            {ocrError && <p className="error-text">{ocrError}</p>}
+          </div>
+          <div className="oc-ocr">
+            <TextEditor ref={textareaRef} value={ocrText} onChange={setOcrText} onSelectionChange={setSelection} />
           </div>
         </section>
 
-        {/* Step 03 */}
-        <section className="card mesa__table" id="paso-3">
-          <div className="step-head">
-            <span className="step-num">03</span>
-            <h2>{t.step03.title}</h2>
+        <section className="oc-fields" id="paso-2" aria-labelledby="oc-fields-title">
+          <div className="oc-section-head">
+            <h2 className="oc-section-title" id="oc-fields-title">{t.ui.fieldsTitle}</h2>
+            <span className="oc-count">{filledCount} / {columns.length}</span>
+            <AddFieldPanel onAdd={handleAddField} />
           </div>
-          <div className="divider" />
-          <div className="status-row">
-            <p className="status-count">{t.step03.count(records.length)}</p>
-            <button type="button" className="icon-btn" aria-label={t.step03.clearTable} onClick={handleClearRecords}>
-              <TrashGlyph />
-            </button>
+          <CategoryFields
+            fields={fields}
+            onFieldChange={(key, val) => setFields((prev) => ({ ...prev, [key]: val }))}
+            selection={selection}
+            onAssign={handleAssign}
+            activeKey={activeChip}
+            columns={columns}
+            flashKey={flashKey}
+          />
+        </section>
+
+        <section className="oc-table" id="paso-3" aria-labelledby="oc-table-title">
+          <div className="oc-section-head">
+            <h2 className="oc-section-title" id="oc-table-title">{t.step03.title}</h2>
+            <span className="oc-count oc-count--soft">{t.step03.count(records.length)} · {t.ui.columnsCount(columns.length)}</span>
+            <span className="oc-section-hint">{t.cols.tableHint}</span>
           </div>
           <BooksTable
             books={records}
@@ -489,57 +633,117 @@ export default function App() {
             columnPunctuation={columnPunctuation}
             onPunctuationChange={handlePunctuationChange}
             onPunctuationReset={handlePunctuationReset}
+            columns={columns}
+            onCellChange={handleCellChange}
+            onInsertRow={handleInsertRow}
+            onRemoveRow={handleRemoveRow}
+            onAddRow={handleAddRow}
+            onInsertColumn={handleInsertColumn}
+            onRenameColumn={handleRenameColumn}
+            onRemoveColumn={handleRemoveColumn}
+            flashKey={flashKey}
           />
         </section>
       </main>
+
+      {/* Barra de acciones fija (móvil) */}
+      <div className="oc-bottombar" role="toolbar" aria-label={t.ui.actions}>
+        <button type="button" className="oc-btn oc-btn--acc" onClick={handleSave}>{t.step03.save}</button>
+        <button type="button" className="oc-btn oc-btn--green" onClick={handleExport}>{t.step03.export}</button>
+        <MenuAnchor open={mobileMoreOpen} onClose={() => setMobileMoreOpen(false)} className="oc-bottombar__more">
+          <button
+            type="button"
+            className="oc-icon-btn"
+            aria-label={`${t.ui.more}: ${t.step03.saveHistory}, ${t.step03.clearTable}`}
+            aria-haspopup="menu"
+            aria-expanded={mobileMoreOpen}
+            onClick={() => setMobileMoreOpen((o) => !o)}
+          >
+            <DotsIcon size={18} />
+          </button>
+          {mobileMoreOpen && (
+            <div className="oc-menu oc-bottombar__menu" role="menu">
+              <button type="button" role="menuitem" className="oc-menu__item" onClick={saveHistoryFromMenu}>
+                <Icon name="history" size={15} />{t.step03.saveHistory}
+              </button>
+              <button type="button" role="menuitem" className="oc-menu__item oc-menu__item--danger" onClick={clearFromMenu}>
+                <Icon name="trash" size={15} />{t.step03.clearTable}
+              </button>
+            </div>
+          )}
+        </MenuAnchor>
+      </div>
     </div>
   );
 }
 
-function AppHeader({ onHamburger, onLogoClick }) {
-  const { lang } = useApp();
+// Contenedor que cierra su menú con clic fuera o Esc.
+function MenuAnchor({ open, onClose, className, children }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => { if (!ref.current?.contains(e.target)) onClose(); };
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open, onClose]);
+  return <div className={className} ref={ref}>{children}</div>;
+}
+
+// Pestañas-ancla Captura · Campos · Tabla (móvil). La activa sigue el scroll.
+function MobileSteps({ t }) {
+  const [active, setActive] = useState('paso-1');
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') return undefined;
+    const ids = ['paso-1', 'paso-2', 'paso-3'];
+    const els = ids.map((id) => document.getElementById(id)).filter(Boolean);
+    const obs = new IntersectionObserver((entries) => {
+      const visible = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+      if (visible[0]) setActive(visible[0].target.id);
+    }, { rootMargin: '-110px 0px -55% 0px' });
+    els.forEach((el) => obs.observe(el));
+    return () => obs.disconnect();
+  }, []);
+  const tabs = [
+    ['paso-1', t.ui.tabCapture],
+    ['paso-2', t.ui.tabFields],
+    ['paso-3', t.ui.tabTable],
+  ];
+  return (
+    <nav className="oc-steps" aria-label={t.ui.steps}>
+      {tabs.map(([id, label]) => (
+        <a
+          key={id}
+          href={`#${id}`}
+          className={active === id ? 'oc-steps__tab oc-steps__tab--on' : 'oc-steps__tab'}
+          aria-current={active === id ? 'step' : undefined}
+          onClick={() => setActive(id)}
+        >
+          {label}
+        </a>
+      ))}
+    </nav>
+  );
+}
+
+function MobileHeader({ showDocType, onDocTypeChange, onHamburger, onLogoClick }) {
+  const { lang, darkMode, setDarkMode } = useApp();
   const t = useT(lang);
   return (
-    <header className="app__header">
-      <div className="header-banner">
-        <button
-          type="button"
-          className="header-brand header-brand--link"
-          onClick={onLogoClick}
-          aria-label={t.header.goHome}
-        >
-          <h1>EBO</h1>
-          <p className="header-sub">{t.header.subtitle}</p>
-        </button>
-        <button type="button" className="hamburger" onClick={onHamburger} aria-label="Abrir menú">
-          <span /><span /><span />
-        </button>
-      </div>
+    <header className="oc-mhead">
+      <button type="button" className="oc-mhead__btn" onClick={onHamburger} aria-label={t.ui.openMenu}>
+        <Icon name="menu" size={20} strokeWidth={1.8} />
+      </button>
+      <button type="button" className="oc-mhead__logo" onClick={onLogoClick} aria-label={t.header.goHome}>EBO</button>
+      <span className="oc-mhead__spacer" />
+      {showDocType && <DocTypeSelector variant="list" onTypeChange={onDocTypeChange} />}
+      <button type="button" className="oc-mhead__btn" onClick={() => setDarkMode(!darkMode)} aria-label={t.ui.toggleTheme}>
+        <Icon name={darkMode ? 'sun' : 'moon'} size={19} />
+      </button>
     </header>
-  );
-}
-
-function SaveGlyph() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M5 4h11l3 3v13H5zM8 4v5h7V4M8 20v-6h8v6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function DownloadGlyph() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M12 4v11M7 10l5 5 5-5M5 20h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function TrashGlyph() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m-9 0 1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
   );
 }

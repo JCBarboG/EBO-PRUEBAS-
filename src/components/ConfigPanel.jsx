@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { useT } from '../i18n/translations';
+import Icon from './Icons';
 
 export default function ConfigPanel({ open, onClose }) {
   const { lang, setLang, darkMode, setDarkMode, cameraEnabled, setCameraEnabled } = useApp();
@@ -18,7 +19,7 @@ export default function ConfigPanel({ open, onClose }) {
       <aside className={`config-panel${open ? ' config-panel--open' : ''}`} aria-modal="true" role="dialog">
         <div className="config-panel__header">
           <span className="config-panel__title">{t.config.title}</span>
-          <button type="button" className="drawer-close" onClick={onClose} aria-label="Cerrar">✕</button>
+          <button type="button" className="drawer-close" onClick={onClose} aria-label={t.ui.close}><Icon name="close" size={20} /></button>
         </div>
 
         <div className="config-panel__body">
@@ -31,14 +32,14 @@ export default function ConfigPanel({ open, onClose }) {
                 className={`config-lang-btn${lang === 'es' ? ' config-lang-btn--active' : ''}`}
                 onClick={() => setLang('es')}
               >
-                🇨🇷 Español
+                Español
               </button>
               <button
                 type="button"
                 className={`config-lang-btn${lang === 'en' ? ' config-lang-btn--active' : ''}`}
                 onClick={() => setLang('en')}
               >
-                🇺🇸 English
+                English
               </button>
             </div>
           </section>
@@ -64,11 +65,11 @@ export default function ConfigPanel({ open, onClose }) {
           {/* Info */}
           <section className="config-section">
             <h3 className="config-section__title">{t.config.info}</h3>
-            <div className="config-info-row">
+            <div className="config-info-row config-info-row--card">
               <span className="config-info-label">{t.config.version}</span>
               <span className="config-info-value">v3.0.0</span>
             </div>
-            <div className="config-info-row">
+            <div className="config-info-row config-info-row--card">
               <span className="config-info-label">{t.config.env}</span>
               <span className="config-info-value config-info-value--env">Free</span>
             </div>
